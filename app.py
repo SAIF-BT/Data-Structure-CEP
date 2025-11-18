@@ -183,4 +183,5 @@ with tab2:
 
 # --- FOOTER ---
 st.markdown("---")
-st.caption("Design Project | Built with Love❤️❤️❤️ By CS-24097 Muhammad Sarim Khan")
+
+st.caption("Design Project | Built with Love❤️❤️❤️ By CS-24084 Muhammad Sarim Khan")
