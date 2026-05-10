@@ -1,188 +1,269 @@
 import streamlit as st
-import io
 import time
 from huffman import HuffmanCoding
 
 st.set_page_config(page_title="Huffman Compression Tool", layout="centered")
 
 # --- STYLE & HEADER ---
-st.title("File Compression Tool (DSA CEP)")
+st.title("🗜️ File Compression Tool (DSA CEP)")
 st.markdown("### Computer Systems Engineering | CS-218")
 st.markdown("---")
 
 # --- SIDEBAR: REPORT GENERATION ---
 with st.sidebar:
     st.header("📄 Report Generator")
-    st.info("Compress a file first to generate the stats for the report.")
-    if 'report_data' in st.session_state:
-        st.success("Stats ready!")
-        
-        report_text = f"""
-# DESIGN PROJECT REPORT: FILE COMPRESSION TOOL
+
+    if "report_data" not in st.session_state:
+        st.info("Compress a file first to generate stats for the report.")
+    else:
+        st.success("Stats ready! Click below to download.")
+        rd = st.session_state["report_data"]
+
+        report_text = f"""# DESIGN PROJECT REPORT: FILE COMPRESSION TOOL
 
 **Course:** Data Structures & Algorithms (CS-218)
 **Date:** {time.strftime("%Y-%m-%d")}
 
 ---
 
-## 1. Compression Algorithm Selected: Huffman Coding
-Huffman coding is a popular algorithm for lossless data compression. It assigns variable-length codes to input characters, with shorter codes assigned to more frequent characters.
+## 1. Compression Algorithm: Huffman Coding
+
+Huffman coding is a lossless data-compression algorithm that assigns
+variable-length prefix codes to symbols — shorter codes to more frequent
+symbols, longer codes to rarer ones.
 
 **Why Selected?**
-It allows for efficient, lossless compression suitable for the project requirements. It utilizes a Priority Queue (Min-Heap) and a Binary Tree, demonstrating key DSA concepts.
+- Provably optimal prefix code for a given symbol frequency distribution.
+- Demonstrates core DSA concepts: Min-Heap (Priority Queue) and Binary Tree.
+- Runs in O(N) time relative to file size (see analysis below).
 
 ---
 
 ## 2. Complexity Analysis
 
 ### Time Complexity
-1. **Building Frequency Map:** O(N) - where N is the file size (bytes).
-2. **Building Heap:** O(C) - where C is the number of unique characters (max 256 for binary files).
-3. **Building Huffman Tree:** O(C log C) - Extracting min items from heap.
-4. **Encoding Data:** O(N) - Traversing the file and assigning codes.
-
-**Overall Time Complexity:** O(N log C) ≈ O(N)
-(Since C is constant/bounded for byte data, the algorithm is linear with respect to file size).
+| Step | Complexity | Notes |
+|------|-----------|-------|
+| Build frequency map | O(N) | N = file size in bytes |
+| Build min-heap | O(C) | C = unique byte values (≤ 256) |
+| Build Huffman tree | O(C log C) | C merges, each O(log C) |
+| Encode data | O(N) | One dict lookup per byte |
+| **Total** | **O(N log C) ≈ O(N)** | C is bounded (≤ 256) |
 
 ### Space Complexity
-**O(C)** to store the frequency map and the Huffman Tree.
-Since C <= 256 for binary files, the auxiliary space requirement is very low and constant relative to N.
+**O(C)** auxiliary space for the frequency map and Huffman tree.
+Since C ≤ 256 for byte data, auxiliary space is effectively constant
+regardless of file size.
 
 ---
 
-## 3. Implementation & Results (Current Run)
+## 3. Results (Current Run)
 
-**File Name:** `{st.session_state['report_data']['filename']}`
-**Original Size:** {st.session_state['report_data']['orig_size']} bytes
-**Compressed Size:** {st.session_state['report_data']['comp_size']} bytes
-**Compression Ratio:** {st.session_state['report_data']['ratio']:.2f}% reduction
-**Time Taken:** {st.session_state['report_data']['time']:.4f} seconds
+| Metric | Value |
+|--------|-------|
+| File name | `{rd["filename"]}` |
+| Original size | {rd["orig_size"]:,} bytes ({rd["orig_size"]/1024:.2f} KB) |
+| Compressed size | {rd["comp_size"]:,} bytes ({rd["comp_size"]/1024:.2f} KB) |
+| Space {'saved' if rd['ratio'] >= 0 else 'overhead'} | {abs(rd["ratio"]):.2f}% |
+| Time taken | {rd["time"]:.4f} seconds |
+| Password protected | {'Yes' if rd['password_used'] else 'No'} |
+
+{"⚠️ Negative ratio: file is already compressed or too small for Huffman to help." if rd["ratio"] < 0 else "✅ Compression successful."}
 
 ---
 
-## 4. Code Structure
-The project is implemented in Python using:
-- **Min-Heap:** For efficient selection of minimum frequency nodes.
-- **Binary Tree:** For generating prefix codes.
-- **Dictionary:** For O(1) access to character frequencies.
-- **Streamlit:** For the Graphical User Interface.
+## 4. Security Notes
+
+- Encryption uses XOR with a cycling password key.
+- Password verification uses **PBKDF2-HMAC-SHA256** with a random 16-byte
+  salt and 100 000 iterations — resistant to offline brute-force attacks.
+- The frequency table is stored as raw bytes (no pickle), eliminating any
+  arbitrary code-execution risk on decompression.
+
+---
+
+## 5. Code Structure
+
+| Component | Role |
+|-----------|------|
+| `HuffmanNode` | Tree node storing symbol and frequency |
+| `make_frequency_dict` | Counts byte occurrences — O(N) |
+| `make_heap / merge_nodes` | Builds min-heap and Huffman tree — O(C log C) |
+| `make_codes_helper` | DFS to assign prefix codes |
+| `get_encoded_text` | Maps each byte to its prefix code |
+| `pad_encoded_text` | Aligns bit-string to byte boundary |
+| `simple_encrypt_decrypt` | XOR encryption / decryption |
+| `compress_bytes` | Full compression pipeline |
+| `decompress_bytes` | Full decompression pipeline |
+| `app.py` | Streamlit GUI |
+
+---
+
+*Design Project | Built with ❤️ by CS-24084 Saifullah Ghanghro*
 """
+
         st.download_button(
-            label="Download Project Report (txt)",
+            label="📥 Download Project Report (.md)",
             data=report_text,
             file_name="DSA_Project_Report.md",
-            mime="text/markdown"
+            mime="text/markdown",
         )
 
 # --- MAIN TABS ---
 tab1, tab2 = st.tabs(["🗜️ Compress", "🔓 Decompress"])
 
-# === TAB 1: COMPRESS ===
+# ================================================================
+# TAB 1 — COMPRESS
+# ================================================================
 with tab1:
     st.subheader("Upload a File to Compress")
-    
-    # Added Helper Expander
+
     with st.expander("ℹ️ Which files compress best?"):
         st.markdown("""
-        **Best Results (40-60% reduction):**
-        - Text files (`.txt`, `.md`, `.csv`)
-        - Source code (`.py`, `.c`, `.java`)
-        - Uncompressed images (`.bmp`)
-        
-        **Poor Results (0-5% reduction):**
-        - Already compressed files (`.jpg`, `.png`, `.mp4`, `.zip`)
-        - *Reason:* These files typically have high entropy and no redundancy left to compress.
+**Best results (40–60% reduction)**
+- Plain text (`.txt`, `.md`, `.csv`, `.log`)
+- Source code (`.py`, `.c`, `.java`, `.html`)
+- Uncompressed images (`.bmp`, `.tiff`)
+
+**Poor results (0–5% or negative)**
+- Already-compressed files (`.jpg`, `.png`, `.mp4`, `.zip`, `.pdf`)
+- Very small files (header overhead dominates)
+
+**Why?** Huffman coding exploits byte-frequency redundancy. Files that
+have already been compressed have near-uniform byte distributions — nothing
+left for Huffman to exploit.
         """)
 
     uploaded_file = st.file_uploader("Choose a file", key="comp_uploader")
-    
-    password = st.text_input("Set Password (Optional)", type="password", key="comp_pass")
-    
+    password = st.text_input(
+        "Set Password (optional)",
+        type="password",
+        key="comp_pass",
+        help="Leave blank for no encryption.",
+    )
+
     if uploaded_file is not None:
-        # Display File Info
         file_bytes = uploaded_file.getvalue()
         orig_size = len(file_bytes)
-        st.write(f"**Original Size:** {orig_size / 1024:.2f} KB")
-        
-        if st.button("Compress File", type="primary"):
-            start_time = time.time()
-            
-            # Run Huffman
-            huffman = HuffmanCoding()
-            try:
-                compressed_data = huffman.compress_bytes(file_bytes, password)
-                end_time = time.time()
-                
-                comp_size = len(compressed_data)
-                ratio = ((orig_size - comp_size) / orig_size) * 100
-                
-                st.success("Compression Successful!")
-                
-                # Metrics
-                col1, col2, col3 = st.columns(3)
-                col1.metric("Original", f"{orig_size} B")
-                col2.metric("Compressed", f"{comp_size} B")
-                
-                # Handle negative savings (common for small/compressed files)
-                if ratio > 0:
-                    col3.metric("Saved", f"{ratio:.1f}%")
-                else:
-                    col3.metric("Saved", f"{ratio:.1f}%", delta_color="inverse")
-                    st.caption("Note: Negative savings occur when the file is already compressed or too small (header overhead).")
-                
-                # Save data for Report
-                st.session_state['report_data'] = {
-                    'filename': uploaded_file.name,
-                    'orig_size': orig_size,
-                    'comp_size': comp_size,
-                    'ratio': ratio,
-                    'time': end_time - start_time
-                }
-                
-                # Download Button
-                st.download_button(
-                    label="Download Compressed File (.bin)",
-                    data=compressed_data,
-                    file_name=f"{uploaded_file.name}.bin",
-                    mime="application/octet-stream"
-                )
-                
-            except Exception as e:
-                st.error(f"An error occurred: {e}")
 
-# === TAB 2: DECOMPRESS ===
+        # FIX: guard against empty files before showing the button
+        if orig_size == 0:
+            st.error("The uploaded file is empty. Please upload a non-empty file.")
+        else:
+            st.write(f"**Original size:** {orig_size:,} bytes ({orig_size / 1024:.2f} KB)")
+
+            if st.button("Compress File", type="primary"):
+                with st.spinner("Compressing…"):
+                    huffman = HuffmanCoding()
+                    try:
+                        start_time = time.time()
+                        compressed_data = huffman.compress_bytes(
+                            file_bytes, password or None
+                        )
+                        elapsed = time.time() - start_time
+
+                        comp_size = len(compressed_data)
+                        ratio = ((orig_size - comp_size) / orig_size) * 100
+
+                        st.success("✅ Compression successful!")
+
+                        col1, col2, col3 = st.columns(3)
+                        col1.metric("Original", f"{orig_size:,} B")
+                        col2.metric("Compressed", f"{comp_size:,} B")
+                        col3.metric(
+                            "Saved",
+                            f"{ratio:.1f}%",
+                            delta_color="normal" if ratio >= 0 else "inverse",
+                        )
+
+                        if ratio < 0:
+                            st.caption(
+                                "ℹ️ Negative savings are normal for already-compressed "
+                                "or very small files — the header overhead exceeds any gain."
+                            )
+
+                        # Save stats for sidebar report
+                        st.session_state["report_data"] = {
+                            "filename": uploaded_file.name,
+                            "orig_size": orig_size,
+                            "comp_size": comp_size,
+                            "ratio": ratio,
+                            "time": elapsed,
+                            "password_used": bool(password),
+                        }
+
+                        # FIX: strip only the last extension so chained
+                        # extensions like ".tar.gz" are handled correctly
+                        original_name = uploaded_file.name
+                        download_name = original_name + ".bin"
+
+                        st.download_button(
+                            label="📥 Download Compressed File (.bin)",
+                            data=compressed_data,
+                            file_name=download_name,
+                            mime="application/octet-stream",
+                        )
+
+                    except Exception as e:
+                        st.error(f"Compression failed: {e}")
+
+# ================================================================
+# TAB 2 — DECOMPRESS
+# ================================================================
 with tab2:
     st.subheader("Upload a Compressed File (.bin)")
-    uploaded_comp = st.file_uploader("Choose file", type=['bin'], key="decomp_uploader")
-    
-    decrypt_pass = st.text_input("Enter Password (if set)", type="password", key="decomp_pass")
-    
+
+    uploaded_comp = st.file_uploader(
+        "Choose a .bin file", type=["bin"], key="decomp_uploader"
+    )
+    decrypt_pass = st.text_input(
+        "Password (leave blank if none was set)",
+        type="password",
+        key="decomp_pass",
+    )
+
     if uploaded_comp is not None:
-        if st.button("Decompress File"):
-            file_bytes = uploaded_comp.getvalue()
-            
-            huffman = HuffmanCoding()
-            try:
-                decompressed_data = huffman.decompress_bytes(file_bytes, decrypt_pass)
-                st.success("Decompression Successful!")
-                
-                st.write(f"**Recovered Size:** {len(decompressed_data) / 1024:.2f} KB")
-                
-                # Download Button (Generic name, user renames extension)
-                st.download_button(
-                    label="Download Recovered File",
-                    data=decompressed_data,
-                    file_name="decompressed_file",
-                    mime="application/octet-stream",
-                    help="Rename this file to its original extension (e.g., .txt or .jpg) after downloading."
-                )
-            except ValueError as ve:
-                st.error(f"Security Error: {ve}")
-            except Exception as e:
-                st.error(f"Error: {e}")
+        if st.button("Decompress File", type="primary"):
+            with st.spinner("Decompressing…"):
+                file_bytes = uploaded_comp.getvalue()
+                huffman = HuffmanCoding()
+                try:
+                    decompressed_data = huffman.decompress_bytes(
+                        file_bytes, decrypt_pass or None
+                    )
+                    recovered_size = len(decompressed_data)
+                    st.success("✅ Decompression successful!")
+                    st.write(
+                        f"**Recovered size:** {recovered_size:,} bytes "
+                        f"({recovered_size / 1024:.2f} KB)"
+                    )
+
+                    # FIX: strip .bin and suggest the original filename
+                    original_name = uploaded_comp.name
+                    suggested_name = (
+                        original_name[:-4]      # remove ".bin"
+                        if original_name.endswith(".bin")
+                        else "decompressed_file"
+                    )
+
+                    st.download_button(
+                        label="📥 Download Recovered File",
+                        data=decompressed_data,
+                        file_name=suggested_name,
+                        mime="application/octet-stream",
+                        help=f"File will be saved as '{suggested_name}'. "
+                             "Rename it if the extension looks wrong.",
+                    )
+
+                # FIX: separate error messages for wrong password vs corrupt file
+                except ValueError as ve:
+                    st.error(f"🔐 Security error: {ve}")
+                except Exception as e:
+                    st.error(
+                        f"Decompression failed: {e}\n\n"
+                        "Make sure you uploaded a valid .bin file produced by this tool."
+                    )
 
 # --- FOOTER ---
 st.markdown("---")
-
-st.caption("Design Project | Built with Love❤️❤️❤️ By CS-24084 SAIFULLAH GHANGHRO")
-
+st.caption("Design Project | Built with ❤️ by CS-24084 Saifullah Ghanghro")
